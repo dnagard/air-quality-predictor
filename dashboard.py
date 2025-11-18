@@ -40,12 +40,6 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     
     # Load forecasts (past and future)
     forecast_df = forecasts_fg.read()
-
-    # Keep only the most recent forecast date for each location. Otherwise if we run multiple days we will get duplicates.
-    forecast_df["forecast_date"] = pd.to_datetime(forecast_df["forecast_date"])
-    latest_forecast_date = forecast_df["forecast_date"].max()
-    forecast_df = forecast_df[forecast_df["forecast_date"] == latest_forecast_date]
-
     forecast_df = forecast_df.sort_values(by="date")
     
     return aq_df, forecast_df
