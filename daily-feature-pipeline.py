@@ -58,11 +58,11 @@ weather_fg = fs.get_feature_group(name="weather", version=3)
 
 #%%
 
-air_quality_df["date"] = to_datetime(air_quality_df["date"])
+air_quality_df["date"] = to_datetime(air_quality_df["date"]).dt.date
 
 # Read historical air quality from FG
 hist_aq = air_quality_fg.read()[["id", "date", "pm25"]]
-hist_aq["date"] = to_datetime(hist_aq["date"])
+hist_aq["date"] = to_datetime(hist_aq["date"]).dt.date
 
 # Combine historical + today
 combined_aq = pd.concat([hist_aq, air_quality_df], ignore_index=True)
@@ -81,10 +81,11 @@ combined_aq["pm25_roll_3"] = (
 )
 
 # Keep only today's rows
-today_ts = to_datetime(today)
+today_ts = today
 new_aq = combined_aq[combined_aq["date"] == today_ts].copy()
 
-# Calendar features
+# Temporal features
+new_aq["date"] = to_datetime(new_aq["date"])
 new_aq["day_of_week"] = new_aq["date"].dt.weekday
 new_aq["is_weekend"] = (new_aq["day_of_week"] >= 5).astype(int)
 
@@ -98,11 +99,11 @@ new_aq.info()
 #%%
 
 # Ensure date is datetime for forecast data
-weather_df["date"] = to_datetime(weather_df["date"])
+weather_df["date"] = to_datetime(weather_df["date"]).dt.date
 
 # Read historical weather from FG
 hist_weather = weather_fg.read()
-hist_weather["date"] = to_datetime(hist_weather["date"])
+hist_weather["date"] = to_datetime(hist_weather["date"]).dt.date
 
 # Keep only base weather columns (we recompute lags & rolls)
 base_cols = [
@@ -146,6 +147,7 @@ new_weather = combined_weather[combined_weather["date"].isin(forecast_dates)].co
 
 print("Weather rows to insert (forecast):")
 new_weather.info()
+new_weather["date"] = pd.to_datetime(new_weather["date"]).dt.date
 
 # %%
 print(f"Inserting {len(new_aq)} air quality records...")
