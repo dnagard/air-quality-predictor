@@ -98,7 +98,7 @@ air_quality_df.info()
 """Upload to Hopsworks Feature Store. May need to change this to work with your setup.
 I don't know which version you're on"""
 
-project = hopsworks.login(engine="python", project="airqual")
+project = hopsworks.login(engine="python", project="matcov")
 fs = project.get_feature_store()
 
 air_quality_fg = fs.get_or_create_feature_group(
