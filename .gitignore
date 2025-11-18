@@ -1,6 +1,7 @@
 __pycache__/
 .DS_Store
 data/
+model/
 .env
 .venv
 .cache.sqlite
