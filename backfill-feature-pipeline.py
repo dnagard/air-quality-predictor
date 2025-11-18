@@ -63,17 +63,32 @@ def load_air_quality_data(locations: dict) -> pd.DataFrame:
 
 
 air_quality_df = load_air_quality_data(locations)
+
+"""Lagged feature implementation"""
+air_quality_df = air_quality_df.sort_values(["id", "date"])
+grouped = air_quality_df.groupby("id", group_keys=False)
+air_quality_df["pm25_lag_1"] = grouped["pm25"].shift(1)
+air_quality_df["pm25_lag_2"] = grouped["pm25"].shift(2)
+air_quality_df["pm25_lag_3"] = grouped["pm25"].shift(3)
+# 3-day rolling mean (including current day)
+air_quality_df["pm25_roll_3"] = (
+    grouped["pm25"]
+    .rolling(3)
+    .mean()
+    .reset_index(level=0, drop=True)
+)
+
 air_quality_df.info()
 
 # %%
-project = hopsworks.login(engine="python", project="matcov")
+project = hopsworks.login(engine="python", project="airqual")
 fs = project.get_feature_store()
 
 # %%
 air_quality_fg = fs.get_or_create_feature_group(
     name="air_quality",
     description="Air Quality characteristics of each day",
-    version=2,
+    version=3,
     primary_key=["id"],
     event_time="date",
 )
@@ -85,16 +100,46 @@ air_quality_fg.insert(air_quality_df)
 # %%
 air_quality_fg.update_feature_description("date", "Date of measurement of air quality")
 air_quality_fg.update_feature_description("pm25", "Particles less than 2.5 micrometers in diameter (fine particles) pose health risk")
+air_quality_fg.update_feature_description("pm25_lag_1", "PM2.5 one day before the measurement")
+air_quality_fg.update_feature_description("pm25_lag_2", "PM2.5 two days before the measurement")
+air_quality_fg.update_feature_description("pm25_lag_3", "PM2.5 three days before the measurement")
+air_quality_fg.update_feature_description("pm25_roll_3", "3-day rolling mean of PM2.5")
+
 
 # %%
 weather_df = util.get_historical(air_quality_df, locations)
+
+"""Lagged feature implementation"""
+weather_df = weather_df.sort_values(["id", "date"])
+grouped = weather_df.groupby("id", group_keys=False)
+
+weather_df["temperature_2m_mean_lag_1"] = grouped["temperature_2m_mean"].shift(1)
+weather_df["precipitation_sum_lag_1"] = grouped["precipitation_sum"].shift(1)
+weather_df["wind_speed_10m_max_lag_1"] = grouped["wind_speed_10m_max"].shift(1)
+weather_df["wind_direction_10m_dominant_lag_1"] = grouped["wind_direction_10m_dominant"].shift(1)
+
+# Rolling averages as well
+weather_df["temp_roll_3"] = (
+    grouped["temperature_2m_mean"]
+    .rolling(3)
+    .mean()
+    .reset_index(level=0, drop=True)
+)
+weather_df["wind_roll_3"] = (
+    grouped["wind_speed_10m_max"]
+    .rolling(3)
+    .mean()
+    .reset_index(level=0, drop=True)
+)
+
+
 weather_df.info()
 
 # %%
 weather_fg = fs.get_or_create_feature_group(
     name="weather",
     description="Weather characteristics of each day",
-    version=2,
+    version=3,
     primary_key=["id"],
     event_time="date",
 )
