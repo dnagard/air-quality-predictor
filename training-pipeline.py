@@ -10,6 +10,9 @@ from pydantic_settings import BaseSettings
 from sklearn.metrics import mean_squared_error, r2_score
 from xgboost import XGBRegressor, plot_importance
 
+import optuna
+
+
 # %%
 class Settings(BaseSettings):
     """Application settings loaded from .env file."""
@@ -37,22 +40,20 @@ project = hopsworks.login(api_key_value=settings.hopsworks_api_key)
 fs = project.get_feature_store()
 
 # %%
-air_quality_fg = fs.get_feature_group(name="air_quality", version=3)
-weather_fg = fs.get_feature_group(name="weather", version=2)
+"""Check versions here again"""
+air_quality_fg = fs.get_feature_group(name="air_quality", version=11)
+weather_fg = fs.get_feature_group(name="weather", version=11)
 
 # %%
-# Create feature view with lagged features
-selected_features = air_quality_fg.select([
-    "id", "pm25", "date", "lagged_1", "lagged_2", "lagged_3"
-]).join(
+selected_features = air_quality_fg.select(["id", "pm25", "date", "pm25_lag_1", "pm25_lag_2", "pm25_lag_3", "pm25_roll_3", "day_of_week", "latitude", "longitude"]).join(
     weather_fg.select_all(), on="id"
 )
 
 # %%
 feature_view = fs.get_or_create_feature_view(
     name="air_quality_fv",
-    description="Weather features with air quality and lagged PM2.5 as features",
-    version=2,
+    description="Weather features with air quality as the target",
+    version=11,
     labels=["pm25"],
     query=selected_features,
 )
@@ -91,15 +92,44 @@ y_test = test_df[["pm25"]]
 print(f"After dropping NaNs - Training: {len(X_train_features)}, Test: {len(X_test_features)}")
 print(f"Features used: {list(X_train_features.columns)}")
 # %%
-xgb_regressor = XGBRegressor(
-    max_depth=5,
-    learning_rate=0.1,
-    n_estimators=100,
-    random_state=42
-)
 
-xgb_regressor.fit(X_train_features, y_train)
-print("✓ Model training completed")
+"""Here is where we do hyperparameter tuning with Optuna"""
+def objective(trial):
+    params = {
+        "max_depth": trial.suggest_int("max_depth", 3, 10),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+        "n_estimators": trial.suggest_int("n_estimators", 50, 400),
+        "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+        "min_child_weight": trial.suggest_float("min_child_weight", 1.0, 10.0),
+        "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+        "random_state": 42,
+        "tree_method": "hist",
+        "n_jobs": -1,
+    }
+
+    model = XGBRegressor(**params)
+    model.fit(X_train_features, y_train.iloc[:, 0])
+
+    preds = model.predict(X_test_features)
+    mse = mean_squared_error(y_test.iloc[:, 0], preds)
+    return mse
+
+study = optuna.create_study(direction="minimize")
+study.optimize(objective, n_trials=30)
+
+print("Best trial:")
+print(f"  Value (MSE): {study.best_value:.4f}")
+print(f"  Params: {study.best_params}")
+
+best_params = study.best_params
+best_params["random_state"] = 42
+best_params["tree_method"] = "hist"
+best_params["n_jobs"] = -1
+
+xgb_regressor = XGBRegressor(**best_params)
+xgb_regressor.fit(X_train_features, y_train.iloc[:, 0])
+print("✓ Model training completed with tuned hyperparameters")
 
 # %%
 y_pred = xgb_regressor.predict(X_test_features)
@@ -196,25 +226,4 @@ MSE: {mse:.4f}
 R²: {r2:.4f}
 Model saved to: {model_dir}
 """)
-# %%
-# Check for outliers and data quality issues
-print("\n=== Data Quality Check ===")
-print("\nPM2.5 Statistics:")
-print(f"Training - Min: {y_train.min().values[0]:.2f}, Max: {y_train.max().values[0]:.2f}, Mean: {y_train.mean().values[0]:.2f}")
-print(f"Test - Min: {y_test.min().values[0]:.2f}, Max: {y_test.max().values[0]:.2f}, Mean: {y_test.mean().values[0]:.2f}")
-
-# Check for extreme values
-extreme_threshold = 200  # PM2.5 > 200 is extremely rare in Sweden
-extreme_train = len(y_train[y_train.iloc[:, 0] > extreme_threshold])
-extreme_test = len(y_test[y_test.iloc[:, 0] > extreme_threshold])
-print(f"\nExtreme values (PM2.5 > {extreme_threshold}):")
-print(f"  Training: {extreme_train}")
-print(f"  Test: {extreme_test}")
-
-# Create a DataFrame for easier analysis
-results_df = pd.DataFrame({
-    'actual': y_test.iloc[:, 0].values,
-    'predicted': y_pred,
-    'error': abs(y_test.iloc[:, 0].values - y_pred)
-})
 # %%
