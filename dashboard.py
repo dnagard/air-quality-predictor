@@ -198,38 +198,45 @@ def create_plot(location: dict, df_air_quality: pd.DataFrame, df_forecast: pd.Da
             )
         )
     
-    # Add forecast data
+        # Add forecast data
     if not forecast_data.empty:
+        # Ensure datetime and strip timezone so everything is tz-naive
+        forecast_data["date"] = pd.to_datetime(forecast_data["date"])
+        forecast_data["date_naive"] = forecast_data["date"].dt.tz_localize(None)
+
+        # Use a naive Timestamp for "today"
+        today_ts = pd.Timestamp(date.today())
+
         # Separate past forecasts (hindcast) from future forecasts
-        today = pd.Timestamp(date.today())
-        past_forecasts = forecast_data[forecast_data["date"] < today]
-        future_forecasts = forecast_data[forecast_data["date"] >= today]
-        
+        past_forecasts = forecast_data[forecast_data["date_naive"] < today_ts]
+        future_forecasts = forecast_data[forecast_data["date_naive"] >= today_ts]
+
         # Show past predictions (hindcast)
         if not past_forecasts.empty:
             fig.add_trace(
                 go.Scatter(
-                    x=past_forecasts["date"],
+                    x=past_forecasts["date_naive"],
                     y=past_forecasts["predicted_pm25"],
                     mode="lines+markers",
                     name="Past Predictions",
                     line=dict(color="#D84797", width=2, dash="dash"),
-                    marker=dict(size=6, symbol="x")
+                    marker=dict(size=6, symbol="x"),
                 )
             )
-        
+
         # Show future predictions
         if not future_forecasts.empty:
             fig.add_trace(
                 go.Scatter(
-                    x=future_forecasts["date"],
+                    x=future_forecasts["date_naive"],
                     y=future_forecasts["predicted_pm25"],
                     mode="lines+markers",
                     name="Future Forecast",
                     line=dict(color="#2E86AB", width=2, dash="dot"),
-                    marker=dict(size=8)
+                    marker=dict(size=8),
                 )
             )
+
     
     # Add vertical line for today using pd.Timestamp
     today_timestamp = pd.Timestamp(date.today())
